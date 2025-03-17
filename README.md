@@ -24,4 +24,4 @@ RedIMG es una herramienta diseñada para redimensionar y optimizar imágenes por
 
 1. Clona este repositorio:
    ```bash
-   git clone https://github.com/tu-usuario/RedIMG.git
+   git clone https://github.com/RiderCalcina/RedIMG.git
