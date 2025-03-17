@@ -1,6 +1,6 @@
 # RedIMG
 
-![RedIMG Logo](https://soportetecnico.rf.gd/RedIMG.jpg)
+![RedIMG Logo] https://soportetecnico.rf.gd/RedIMG.jpg
 
 RedIMG es una herramienta diseñada para redimensionar y optimizar imágenes por lotes de manera rápida y eficiente. Convierte tus imágenes a un tamaño adecuado para compartir en la web, manteniendo la calidad y reduciendo el espacio de almacenamiento.
 
