@@ -1,0 +1,37 @@
+Historial de Versiones - RedIMG
+============================
+
+v3.5.3 "Quality & Speed Pro - Refined" (Febrero 2026)
+---------------------------------------------------
+* FIX: Solucionado error donde se abría el selector de archivos al terminar el proceso (separación de `on_select_file`).
+* FIX: Eliminación de código inactivo y obsoleto (`mostrar_config`).
+* MEJORA: Color de barra de progreso ajustado a Celeste Eléctrico.
+* MEJORA: Texto de la ventana "About" oscurecido a un gris suave para mayor legibilidad.
+
+v3.5.0 "Quality & Speed Pro" (Febrero 2026)
+------------------------------------------
+* NUEVO: Motor de búsqueda binaria para calidad (Optimización exacta en ms).
+* NUEVO: Procesamiento en paralelo (Multithreading con 4 núcleos) para máxima velocidad.
+* NUEVO: Botón "Individual" con soporte para selección múltiple de archivos.
+* NUEVO: Nomenclatura automática inteligente para evitar conflictos de archivos.
+* MEJORA: Calidad visual superior (Ajuste 4:2:0 a 780KB y 1600px).
+* MEJORA: UI ultra-reactiva (polling de 30ms para barra de progreso).
+* FIX: Error `alloc: invalid block` corregido (optimización crítica de memoria).
+* MEJORA: Pre-asignación de partículas y capas estáticas para mayor fluidez.
+* MEJORA: Arranque seguro diferido de animaciones.
+* MEJORA: Calidad visual superior (Ajuste 4:2:0 a 780KB y 1600px).
+
+v3.1.0 (Enero 2026)
+-------------------
+
+v3.0.0 "Modern Edition" (Enero 2026)
+------------------------------------
+* NUEVO: Migración total a CustomTkinter (Estilo Midnight Navy).
+* NUEVO: Multithreading (Procesamiento sin congelar la ventana).
+* NUEVO: Soporte para formato WEBP de alta eficiencia.
+* MEJORA: Refactorización completa orientada a objetos.
+
+v2.0.6 (Versión Anterior)
+-------------------------
+* Versión inicial en Tkinter estándar.
+* Motor de optimización básico JPEG.
