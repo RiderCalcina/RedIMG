@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
 
 <p align="center">
-  <img src="RedIMG.jpg" width="750" alt="RedIMG Interfaz">
+  <img src="RedIMG.jpg" width="600" alt="RedIMG Interfaz">
 </p>
 
 **RedIMG** es tu herramienta definitiva para la optimización masiva de imágenes con calidad profesional. Es una utilidad de alto rendimiento diseñada para procesar imágenes, reducir su peso, cambiar su formato y mantener la mejor calidad visual posible, ideal para envíos de correo, diseño web y ahorro de almacenamiento.
