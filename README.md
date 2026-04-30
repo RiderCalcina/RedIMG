@@ -1,29 +1,72 @@
-# RedIMG v3.6.0 - Advanced Format Pro
+# RedIMG v3.6.0 - Advanced Format Pro 📸✨
 
-Tu herramienta definitiva para la optimización masiva de imágenes con calidad profesional. RedIMG es una utilidad de alto rendimiento diseñada para procesar imágenes, reducir su peso, cambiar su formato y mantener la mejor calidad visual posible, ideal para envíos de correo, diseño web y ahorro de almacenamiento.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![Python](https://img.shields.io/badge/Python-3.6+-blue.svg)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
 
-## PUNTOS CLAVE:
+<p align="center">
+  <img src="RedIMG.jpg" width="750" alt="RedIMG Interfaz">
+</p>
 
-* **Soporte Ampliado**: Procesamiento nativo de formatos modernos como **WebP**, **AVIF**, **PNG**, además de **HEIC/HEIF** (iPhone) y fotos **RAW** de cámara (.cr2, .nef, .arw, .dng).
-* **Conversión y Redimensión Dinámica**: Elija objetivos como 780KB, 1MB, 2MB o sin límite. El programa escala automáticamente la resolución y utiliza compresión inteligente para ajustar el peso exacto.
-* **Optimización Inteligente**: Búsqueda binaria controlada (ahora con 6 iteraciones de precisión) y cuantización de color para PNG, garantizando que el peso de las imágenes cumpla con lo prometido.
-* **Preservación EXIF**: Rotación y orientación gestionada mediante transposición nativa EXIF, para que las fotos verticales siempre queden derechas.
-* **Gestión de Memoria Activa**: Recolección de basura inteligente integrada para procesar miles de imágenes sin consumir RAM excesiva.
-* **Interfaz High-End**: Tema "Dark Black" asimétrico, controles minimalistas alineados matemáticamente, barra de progreso incorporada con estimación de tiempo (ETA) y animaciones fluidas de partículas.
-* **Turbo Batch**: Procesamiento en paralelo utilizando todos los núcleos de la CPU disponibles.
-* **Seguridad RedIMG**: Todas las imágenes generadas se guardan en una subcarpeta automática llamada `RedIMG`, garantizando que tus originales nunca se sobreescriben.
-
-## INICIO RÁPIDO:
-
-1. Ejecute `RedIMG-v3.6.0.py` (v3.6.0 estable).
-2. Arrastre y suelte carpetas o archivos directamente en la interfaz negra, o haga doble clic en el centro para abrir el explorador de archivos.
-3. Pulse en el icono de **Engranaje (⚙)** abajo a la derecha para seleccionar el formato de salida y el límite de tamaño.
-4. Encuentre sus fotos optimizadas en la subcarpeta `RedIMG` junto a los originales.
-
-## DOCUMENTACIÓN:
-
-Consulte el archivo [HELP.md](HELP.md) para conocer en detalle cada una de las funciones ocultas, formatos y modos de compresión de la aplicación.
-Para ver qué ha cambiado recientemente, lea [CHANGELOG.md](CHANGELOG.md).
+**RedIMG** es tu herramienta definitiva para la optimización masiva de imágenes con calidad profesional. Es una utilidad de alto rendimiento diseñada para procesar imágenes, reducir su peso, cambiar su formato y mantener la mejor calidad visual posible, ideal para envíos de correo, diseño web y ahorro de almacenamiento.
 
 ---
-© 2026 QWERTY ASERTY. Todos los derechos reservados.
+
+## ✨ Características Principales
+
+### 🚀 Optimización y Rendimiento
+- **Turbo Batch**: Procesamiento en paralelo utilizando todos los núcleos de la CPU disponibles para máxima velocidad.
+- **Optimización Inteligente**: Búsqueda binaria controlada (6 iteraciones de precisión) y cuantización de color para PNG, garantizando el peso exacto prometido.
+- **Gestión de Memoria Activa**: Recolección de basura inteligente integrada para procesar miles de imágenes sin agotar la RAM.
+
+### 📁 Compatibilidad de Formatos
+- **Soporte Ampliado**: Procesamiento nativo de **WebP**, **AVIF**, **PNG**, además de **HEIC/HEIF** (iPhone) y fotos **RAW** (.cr2, .nef, .arw, .dng).
+- **Conversión Dinámica**: Objetivos de tamaño ajustables (780KB, 1MB, 2MB o sin límite) con escalado automático de resolución.
+
+### 🎨 Interfaz y Experiencia
+- **Interfaz High-End**: Tema "Dark Black" asimétrico, controles minimalistas y barra de progreso con estimación de tiempo (ETA).
+- **Preservación EXIF**: Rotación y orientación gestionada mediante transposición nativa EXIF.
+- **Seguridad RedIMG**: Los originales nunca se sobreescriben; los resultados se guardan en una subcarpeta automática `RedIMG`.
+
+---
+
+## 🛠️ Requisitos del Sistema
+- **Python 3.6+**
+- **Dependencias**: Listadas en `requirements.txt` (Pillow, CustomTkinter, etc.)
+
+---
+
+## 🚀 Instalación y Uso
+
+1. **Clonar el repositorio**:
+   ```bash
+   git clone https://github.com/RiderCalcina/RedIMG.git
+   cd RedIMG
+   ```
+
+2. **Instalar dependencias**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Ejecutar la aplicación**:
+   ```bash
+   python RedIMG-v3.6.0.py
+   ```
+
+---
+
+## 📖 Documentación Detallada
+
+- 📘 [HELP.md](HELP.md) - Manual detallado de funciones y modos de compresión.
+- 📜 [CHANGELOG.md](CHANGELOG.md) - Historial de versiones y evolución del proyecto.
+
+---
+
+## 👤 Créditos y Desarrollador
+
+Desarrollado por **QWERTY-ASERTY**
+🌐 [Rider Calcina](https://soportetecnico.rf.gd/)
+
+---
+*Nota: RedIMG está optimizado para flujos de trabajo rápidos sin comprometer la integridad visual de tus fotografías.*
