@@ -1,4 +1,4 @@
-# RedIMG v3.6.0 - Advanced Format Pro 📸✨
+# RedIMG v3.6.0 - 📸✨
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Python](https://img.shields.io/badge/Python-3.6+-blue.svg)
