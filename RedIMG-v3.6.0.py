@@ -9,6 +9,7 @@ import math
 import random
 import logging
 import time
+import gc
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from typing import Optional, List
@@ -22,6 +23,23 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import ctypes
+import json
+
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
+
+try:
+    import rawpy
+except ImportError:
+    rawpy = None
+
+try:
+    import pillow_avif
+except ImportError:
+    pass
 
 try:
     import windnd
@@ -29,7 +47,7 @@ except ImportError:
     windnd = None
 
 
-VERSION = "3.5.3"
+VERSION = "3.6.0"
 
 MAX_SIZE = 1600
 MAX_WEIGHT_KB = 780
@@ -59,6 +77,21 @@ def setup_logging() -> logging.Logger:
     return logger
 
 
+def get_resource_path(relative_path: str) -> str:
+    """Obtiene la ruta absoluta al recurso, compatible con desarrollo y Nuitka/PyInstaller."""
+    try:
+        # PyInstaller crea una carpeta temporal y almacena la ruta en _MEIPASS
+        if hasattr(sys, '_MEIPASS'):
+            base_path = sys._MEIPASS
+        else:
+            # Nuitka o ejecución normal: usamos la carpeta del ejecutable o del script
+            base_path = os.path.dirname(os.path.abspath(sys.argv[0]))
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+
 def get_max_threads() -> int:
     """Retorna el número máximo de hilos disponibles."""
     return os.cpu_count() or 4
@@ -70,7 +103,10 @@ logger = setup_logging()
 class RedIMGApp:
     """Aplicación principal de RedIMG."""
     
-    SUPPORTED_FORMATS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp"}
+    SUPPORTED_FORMATS = {
+        ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp",
+        ".heic", ".heif", ".cr2", ".nef", ".arw", ".dng"
+    }
     
     def __init__(self) -> None:
         logger.info("Iniciando RedIMG v%s", VERSION)
@@ -96,13 +132,13 @@ class RedIMGApp:
         self.root.style.configure(".", background="#000000", fieldbackground="#000000")
         self.root.style.configure("TFrame", background="#000000")
         self.root.style.configure("TLabel", background="#000000", foreground="#FFFFFF")
-        # Estilo para la barra de progreso (Celeste Eléctrico)
+        # Estilo para la barra de progreso (Color del icono RedIMG)
         self.root.style.configure(
             "info.Horizontal.TProgressbar", 
             thickness=8, 
             borderwidth=0, 
             troughcolor="#000000",
-            background="#00FFFF"  # Celeste eléctrico
+            background="#FF1A55"
         )
         
         self._setup_dark_mode()
@@ -110,10 +146,19 @@ class RedIMGApp:
         self.processing_queue: queue.Queue = queue.Queue()
         self.is_processing = False
         self.cancel_requested = False
+        self._notif_window = None
         
-        if os.path.exists("RedIMG.ico"):
+        self.config = {
+            "target_size_kb": 780,
+            "format": "jpg",
+            "webp_mode": "lossless"
+        }
+        self.load_config()
+        
+        icon_path = get_resource_path("RedIMG.ico")
+        if os.path.exists(icon_path):
             try:
-                self.root.iconbitmap("RedIMG.ico")
+                self.root.iconbitmap(icon_path)
             except Exception:
                 pass
         
@@ -133,6 +178,26 @@ class RedIMGApp:
         
         logger.info("RedIMG iniciado correctamente")
     
+    def load_config(self) -> None:
+        """Carga la configuración desde config.json."""
+        config_path = "config.json"
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    loaded_config = json.load(f)
+                    self.config.update(loaded_config)
+            except Exception as e:
+                logger.error("Error cargando config.json: %s", e)
+
+    def save_config(self) -> None:
+        """Guarda la configuración actual en config.json."""
+        config_path = "config.json"
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(self.config, f, indent=4)
+        except Exception as e:
+            logger.error("Error guardando config.json: %s", e)
+
     def _setup_dark_mode(self) -> None:
         """Configura el modo oscuro en Windows."""
         try:
@@ -184,6 +249,16 @@ class RedIMGApp:
             tags="ui"
         )
         
+        self.id_lbl_time = self.canvas_bg.create_text(
+            150, 80,
+            text="",
+            fill="#00FF99",
+            font=("Arial", 8),
+            anchor="center",
+            justify="center",
+            tags="ui"
+        )
+        
         def on_canvas_click(event: tk.Event) -> None:
             tags = self.canvas_bg.gettags("current")
             if "ui" not in tags:
@@ -216,6 +291,18 @@ class RedIMGApp:
             280, 10, window=self.btn_about, anchor="center", tags="ui"
         )
         
+        self.id_btn_config = self.canvas_bg.create_text(
+            15, 115,
+            text="⚙",
+            fill="#BBBBBB",
+            font=("Arial", 12),
+            anchor="se",
+            tags=("ui", "config_btn")
+        )
+        self.canvas_bg.tag_bind("config_btn", "<Button-1>", lambda e: self.mostrar_config())
+        self.canvas_bg.tag_bind("config_btn", "<Enter>", lambda e: (self.canvas_bg.itemconfig(self.id_btn_config, fill="#FFFFFF"), self.canvas_bg.config(cursor="hand2")))
+        self.canvas_bg.tag_bind("config_btn", "<Leave>", lambda e: (self.canvas_bg.itemconfig(self.id_btn_config, fill="#BBBBBB"), self.canvas_bg.config(cursor="")))
+        
 
     
     def centrar_ventana(self, ventana: tk.Tk) -> None:
@@ -234,10 +321,13 @@ class RedIMGApp:
                 msg = self.processing_queue.get_nowait()
                 if msg[0] == "progress":
                     self.progress["value"] = msg[1] * 100
+                    if len(msg) > 2:
+                        self.canvas_bg.itemconfig(self.id_lbl_time, text=f"Estimado: {msg[2]}")
                 elif msg[0] == "done":
                     self.is_processing = False
                     self.rain_system.running = True
                     self.progress["value"] = 0
+                    self.canvas_bg.itemconfig(self.id_lbl_time, text="")
                     self.notificar_usuario("Éxito", msg[1], "success")
                 elif msg[0] == "error":
                     self.is_processing = False
@@ -246,11 +336,13 @@ class RedIMGApp:
                 elif msg[0] == "warning":
                     self.is_processing = False
                     self.rain_system.running = True
+                    self.canvas_bg.itemconfig(self.id_lbl_time, text="")
                     self.notificar_usuario("Aviso", msg[1], "warning")
                 elif msg[0] == "cancelled":
                     self.is_processing = False
                     self.rain_system.running = True
                     self.progress["value"] = 0
+                    self.canvas_bg.itemconfig(self.id_lbl_time, text="")
                     self.notificar_usuario("Cancelado", msg[1], "info")
         except queue.Empty:
             pass
@@ -261,16 +353,20 @@ class RedIMGApp:
     
     def notificar_usuario(self, titulo: str, mensaje: str, tipo: str = "info") -> None:
         """Muestra una notificación personalizada compacta que no bloquea la UI central."""
+        if getattr(self, "_notif_window", None) and self._notif_window.winfo_exists():
+            self._notif_window.destroy()
         notif = tk.Toplevel(self.root)
+        self._notif_window = notif
         notif.withdraw()
         notif.overrideredirect(True)
         notif.attributes("-topmost", True)
         notif.configure(background="#111111")
         
         # Heredar icono de la ventana principal
-        if os.path.exists("RedIMG.ico"):
+        icon_path = get_resource_path("RedIMG.ico")
+        if os.path.exists(icon_path):
             try:
-                notif.iconbitmap("RedIMG.ico")
+                notif.iconbitmap(icon_path)
             except:
                 pass
 
@@ -311,7 +407,7 @@ class RedIMGApp:
         notif.deiconify()
         
         # Se cierra sola después de 4 segundos
-        self.root.after(4000, notif.destroy)
+        self.root.after(4000, lambda: notif.destroy() if notif.winfo_exists() else None)
 
     def on_select_file(self) -> None:
         """Abre el selector de archivos."""
@@ -321,7 +417,7 @@ class RedIMGApp:
         archivos = filedialog.askopenfilenames(
             title="Seleccionar imágenes",
             filetypes=[
-                ("Imágenes", "*.jpg *.jpeg *.png *.bmp *.gif *.tiff *.webp"),
+                ("Imágenes", "*.jpg *.jpeg *.png *.bmp *.gif *.tiff *.webp *.heic *.heif *.cr2 *.nef *.arw *.dng"),
                 ("Todos", "*.*")
             ]
         )
@@ -374,17 +470,22 @@ class RedIMGApp:
     def corregir_orientacion(self, img: Image.Image) -> Image.Image:
         """Corrige la orientación de la imagen según los metadatos EXIF."""
         try:
-            exif = img._getexif()
-            if exif:
-                orient = exif.get(274)
-                if orient == 3:
-                    img = img.rotate(180, expand=True)
-                elif orient == 6:
-                    img = img.rotate(270, expand=True)
-                elif orient == 8:
-                    img = img.rotate(90, expand=True)
-        except Exception:
-            pass
+            from PIL import ImageOps
+            img = ImageOps.exif_transpose(img)
+        except Exception as e:
+            logger.debug("Fallo en exif_transpose, intentando método manual: %s", e)
+            try:
+                exif = img.getexif()
+                if exif:
+                    orient = exif.get(274)
+                    if orient == 3:
+                        img = img.rotate(180, expand=True)
+                    elif orient == 6:
+                        img = img.rotate(270, expand=True)
+                    elif orient == 8:
+                        img = img.rotate(90, expand=True)
+            except Exception:
+                pass
         return img
     
     def preparar_imagen(
@@ -430,7 +531,9 @@ class RedIMGApp:
         self,
         img: Image.Image,
         ruta_salida: str,
-        max_weight_kb: Optional[int] = None
+        max_weight_kb: Optional[int] = None,
+        out_format: str = "jpg",
+        webp_mode: str = "lossy"
     ) -> None:
         """
         Optimiza la imagen usando búsqueda binaria para encontrar el peso ideal.
@@ -438,60 +541,101 @@ class RedIMGApp:
         Args:
             img: Imagen PIL a optimizar
             ruta_salida: Ruta donde se guardará la imagen
-            max_weight_kb: Peso máximo en KB
+            max_weight_kb: Peso máximo en KB (0 para sin límite)
+            out_format: Formato de salida ("jpg", "webp", "avif")
+            webp_mode: Modo de WebP ("lossy", "lossless")
         """
         if max_weight_kb is None:
-            max_weight_kb = MAX_WEIGHT_KB
+            max_weight_kb = self.config.get("target_size_kb", 780)
+            
+        is_unlimited = max_weight_kb <= 0
+        max_size_bytes = max_weight_kb * 1024 if not is_unlimited else float('inf')
         
-        max_size_bytes = max_weight_kb * 1024
-        
+        # Guardado sin límite o inicial
         buffer_init = BytesIO()
-        img.save(
-            buffer_init,
-            "JPEG",
-            quality=95,
-            optimize=True,
-            progressive=True,
-            subsampling="4:2:0"
-        )
         
-        if buffer_init.tell() <= max_size_bytes:
+        if out_format == "webp":
+            if webp_mode == "lossless":
+                img.save(buffer_init, "WEBP", lossless=True)
+            else:
+                img.save(buffer_init, "WEBP", quality=95, method=6)
+        elif out_format == "avif":
+            try:
+                img.save(buffer_init, "AVIF", quality=90)
+            except Exception as e:
+                logger.error("Error guardando AVIF inicial, cayendo a JPG: %s", e)
+                out_format = "jpg"
+                img.save(buffer_init, "JPEG", quality=95, optimize=True, progressive=True, subsampling="4:2:0")
+        elif out_format == "png":
+            img.save(buffer_init, "PNG", optimize=True, compress_level=9)
+        else: # jpg
+            img.save(buffer_init, "JPEG", quality=95, optimize=True, progressive=True, subsampling="4:2:0")
+            
+        if is_unlimited or buffer_init.tell() <= max_size_bytes:
             with open(ruta_salida, "wb") as f:
                 f.write(buffer_init.getvalue())
             buffer_init.close()
             return
-        
+            
+        # Búsqueda binaria para ajustar calidad
         low, high = 10, 90
-        final_buffer = buffer_init
+        final_buffer = None
+        smallest_buffer = None
+        iterations = 0
         
         try:
-            while low <= high:
+            while low <= high and iterations < 6:
+                iterations += 1
                 mid = (low + high) // 2
                 buffer = BytesIO()
-                img.save(
-                    buffer,
-                    "JPEG",
-                    quality=mid,
-                    optimize=True,
-                    progressive=True,
-                    subsampling="4:2:0"
-                )
                 
-                if buffer.tell() <= max_size_bytes:
-                    if final_buffer and final_buffer != buffer_init:
+                if out_format == "png":
+                    # Mapear mid (10 a 90) a colores (2 a 256) para PNG
+                    colores = int(2 + (mid - 10) * 254 / 80)
+                    img_q = img.quantize(colors=colores)
+                    img_q.save(buffer, "PNG", optimize=True, compress_level=9)
+                elif out_format == "webp":
+                    img.save(buffer, "WEBP", quality=mid, method=6)
+                elif out_format == "avif":
+                    try:
+                        img.save(buffer, "AVIF", quality=mid)
+                    except:
+                        buffer.close()
+                        break # Falla AVIF a mitad, usamos el último bueno
+                else: # jpg
+                    img.save(buffer, "JPEG", quality=mid, optimize=True, progressive=True, subsampling="4:2:0")
+                
+                size = buffer.tell()
+                
+                # Mantener el buffer más pequeño generado por si nunca alcanzamos la meta
+                if smallest_buffer is None or size < smallest_buffer.tell():
+                    if smallest_buffer:
+                        smallest_buffer.close()
+                    smallest_buffer = BytesIO(buffer.getvalue())
+                
+                if size <= max_size_bytes:
+                    if final_buffer:
                         final_buffer.close()
                     final_buffer = buffer
+                    if size >= max_size_bytes * 0.90:
+                        break
                     low = mid + 1
                 else:
                     buffer.close()
                     high = mid - 1
             
+            buffer_to_save = final_buffer if final_buffer else smallest_buffer
+            if not buffer_to_save:
+                buffer_to_save = buffer_init
+                
             with open(ruta_salida, "wb") as f:
-                f.write(final_buffer.getvalue())
+                f.write(buffer_to_save.getvalue())
         finally:
             if final_buffer:
                 final_buffer.close()
-            if buffer_init and buffer_init != final_buffer:
+            if smallest_buffer:
+                smallest_buffer.close()
+            if buffer_init:
                 buffer_init.close()
     
     def process_multiple_files(self, rutas: list) -> None:
@@ -507,18 +651,45 @@ class RedIMGApp:
                 return
             
             base_carpeta = os.path.dirname(rutas[0])
-            salida_dir = os.path.join(base_carpeta, "RedIMG")
+            nombre_contexto = os.path.basename(base_carpeta)
+            if not nombre_contexto:
+                nombre_contexto = "Procesado"
+            
+            # Nombre de la carpeta de salida (ya no es harcodeado "RedIMG")
+            salida_dir_name = f"{nombre_contexto}_Proc"
+            salida_dir = os.path.join(base_carpeta, salida_dir_name)
             os.makedirs(salida_dir, exist_ok=True)
             
             errores = []
             max_threads = get_max_threads()
-            max_size = MAX_SIZE
-            max_weight = MAX_WEIGHT_KB
+            max_weight = self.config.get("target_size_kb", 780)
+            
+            # Dimensiones escaladas según el peso elegido
+            if max_weight <= 0:
+                max_size = float('inf') # Sin límite, sin redimensión
+            elif max_weight <= 780:
+                max_size = 1600         # Mínimo establecido
+            elif max_weight <= 1024:
+                max_size = 2048         # Para 1MB
+            else:
+                max_size = 3072         # Para 2MB o superior
+                
+            out_format = self.config.get("format", "jpg").lower()
+            webp_mode = self.config.get("webp_mode", "lossy")
+            
+            if out_format not in ["jpg", "webp", "avif", "png"]:
+                out_format = "jpg"
+            
+            # Formatear extension
+            ext_map = {"jpg": ".jpg", "webp": ".webp", "avif": ".avif", "png": ".png"}
+            out_ext = ext_map.get(out_format, ".jpg")
             
             logger.info(
-                "Procesando %d imágenes con %d hilos (max_size=%d, max_weight=%dKB)",
-                total, max_threads, max_size, max_weight
+                "Procesando %d imágenes con %d hilos (max_size=%d, max_weight=%dKB, formato=%s)",
+                total, max_threads, max_size, max_weight, out_format
             )
+            
+            start_time = time.time()
             
             def process_item(item: tuple) -> tuple:
                 """Procesa un archivo individual. Retorna (éxito, nombre, error)."""
@@ -527,16 +698,28 @@ class RedIMGApp:
                 
                 idx, ruta = item
                 try:
-                    nombre_final = (
-                        f"RedIMG_{idx:03d}.jpg"
-                        if total > 1
-                        else f"{os.path.splitext(os.path.basename(ruta))[0]}_RedIMG.jpg"
-                    )
+                    if total > 1:
+                        # Procesamiento en lote: NombreDirectorio_001
+                        nombre_base = f"{nombre_contexto}_{idx:03d}"
+                    else:
+                        # Procesamiento individual: NombreArchivo_Proc
+                        nombre_base = f"{os.path.splitext(os.path.basename(ruta))[0]}_Proc"
+                    
+                    nombre_final = nombre_base + out_ext
                     salida = os.path.join(salida_dir, nombre_final)
                     
-                    with Image.open(ruta) as img:
-                        img_proc = self.preparar_imagen(img, max_size)
-                        self.optimizar_y_guardar(img_proc, salida, max_weight)
+                    ext = os.path.splitext(ruta)[1].lower()
+                    if ext in (".cr2", ".nef", ".arw", ".dng") and rawpy is not None:
+                        with rawpy.imread(ruta) as raw:
+                            rgb = raw.postprocess()
+                            img = Image.fromarray(rgb)
+                            img_proc = self.preparar_imagen(img, max_size)
+                            self.optimizar_y_guardar(img_proc, salida, max_weight, out_format, webp_mode)
+                            img.close()
+                    else:
+                        with Image.open(ruta) as img:
+                            img_proc = self.preparar_imagen(img, max_size)
+                            self.optimizar_y_guardar(img_proc, salida, max_weight, out_format, webp_mode)
                     
                     logger.debug("Procesado: %s -> %s", ruta, nombre_final)
                     return (True, nombre_final, None)
@@ -559,7 +742,21 @@ class RedIMGApp:
                         errores.append(f"{nombre}: {error}" if error else nombre)
                     
                     completados += 1
-                    self.processing_queue.put(("progress", completados / total))
+                    
+                    # Calcular tiempo estimado
+                    elapsed = time.time() - start_time
+                    avg_time_per_img = elapsed / completados
+                    remaining_imgs = total - completados
+                    est_remaining_sec = avg_time_per_img * remaining_imgs
+                    
+                    if est_remaining_sec > 60:
+                        est_time_str = f"{int(est_remaining_sec//60)}m {int(est_remaining_sec%60)}s"
+                    else:
+                        est_time_str = f"{int(est_remaining_sec)}s"
+                        
+                    self.processing_queue.put(("progress", completados / total, est_time_str))
+                    if completados % 50 == 0:
+                        gc.collect()
             
             if self.cancel_requested:
                 self.processing_queue.put(
@@ -569,11 +766,10 @@ class RedIMGApp:
             
             if not errores:
                 msg = (
-                    "¡Éxito! Todas las imágenes procesadas."
+                    f"Procesadas {total} imágenes."
                     if total > 1
                     else "Imagen procesada con éxito."
                 )
-                msg += "\n\nLas fotos están en la carpeta /RedIMG"
                 self.processing_queue.put(("done", msg))
                 logger.info("Procesamiento completado: %d/%d imágenes", total, total)
             else:
@@ -581,9 +777,11 @@ class RedIMGApp:
                 if len(errores) > 10:
                     error_summary += f"\n...y {len(errores) - 10} errores más"
                 self.processing_queue.put(
-                    ("warning", f"Terminado con {len(errores)} errores.\n\n{error_summary}\n\nRevisa la carpeta /RedIMG")
+                    ("warning", f"Terminado con {len(errores)} errores.\n\n{error_summary}\n\nRevisa la carpeta /{salida_dir_name}")
                 )
                 logger.warning("Procesamiento completado con errores: %d/%d", total - len(errores), total)
+            
+            gc.collect()
         
         except Exception as e:
             logger.exception("Error en process_multiple_files: %s", e)
@@ -598,10 +796,11 @@ class RedIMGApp:
             
             self.about_window = ttk.Toplevel(self.root)
             self.about_window.title("About")
-            self.about_window.geometry("300x140")
+            self.about_window.geometry("300x156")
             self.about_window.resizable(False, False)
             self.about_window.configure(background="#000000")
             self.about_window.overrideredirect(True)
+            self.about_window.attributes("-topmost", True)
             # Forzar estilo para las labels de la ventana about
             self.root.style.configure("About.TLabel", background="#000000", foreground="#B0B0B0")
             
@@ -609,19 +808,34 @@ class RedIMGApp:
             main_x = self.root.winfo_x()
             main_y = self.root.winfo_y()
             main_w = self.root.winfo_width()
+            main_h = self.root.winfo_height()
+            
+            title_bar_h = self.root.winfo_rooty() - main_y
+            if title_bar_h < 0 or title_bar_h > 50:
+                title_bar_h = 31
+                
+            total_h = main_h + title_bar_h
             
             x = main_x + main_w + 5
             y = main_y
-            self.about_window.geometry(f"+{int(x)}+{int(y)}")
-            self.about_window.geometry("300x140")
+            self.about_window.geometry(f"300x{total_h}+{int(x)}+{int(y)}")
             
             self.root.after(200, self._set_about_focus)
             
+            lbl_title = ttk.Label(
+                self.about_window,
+                text=f"RedIMG v{VERSION}",
+                font=("Arial", 9, "bold"),
+                foreground="#00FF99",
+                background="#000000",
+                justify="center"
+            )
+            lbl_title.pack(pady=(15, 0), padx=10)
+            
             txt = (
-                f"RedIMG v{VERSION}\n\n"
-                "Redimencion y optimización rápida de imágenes.\n\n"
-                "Arrastra y suelta tus imágenes o carpetas para procesarlas,\n"
-                "o haz clic en la interfaz para seleccionarlas."
+                "Redimensionado y optimización rápida de imágenes.\n"
+                "Arrastra tus imágenes en la interfaz para\n"
+                "procesarlas, convertirlas y enviarlas fácilmente."
             )
             
             lbl_info = ttk.Label(
@@ -632,17 +846,31 @@ class RedIMGApp:
                 style="About.TLabel",
                 justify="center"
             )
-            lbl_info.pack(pady=(20, 0), padx=10)
+            lbl_info.pack(pady=(5, 0), padx=10)
+            
+            exts = sorted([f.replace('.', '').upper() for f in self.SUPPORTED_FORMATS])
+            mid = len(exts) // 2
+            text_exts = ", ".join(exts[:mid]) + ",\n" + ", ".join(exts[mid:])
+            
+            lbl_formats = ttk.Label(
+                self.about_window,
+                text=text_exts,
+                font=("Arial", 8),
+                wraplength=280,
+                style="About.TLabel",
+                justify="center"
+            )
+            lbl_formats.pack(pady=(12, 0), padx=10)
             
             link = ttk.Label(
                 self.about_window,
-                text="www.qwertyaserty.com",
+                text="QwertyAserty",
                 cursor="hand2",
                 foreground="#00FF99",
                 background="#000000",
                 font=("Arial", 9, "underline")
             )
-            link.pack(side="top", anchor="center", padx=10, pady=(15, 0))
+            link.pack(side="top", anchor="center", padx=10, pady=(12, 0))
             link.bind("<Button-1>", lambda e: webbrowser.open("https://qwertyaserty.com/"))
         
         except Exception as e:
@@ -653,6 +881,17 @@ class RedIMGApp:
     def cerrar_about(self, event: Optional[tk.Event] = None) -> None:
         """Cierra la ventana Acerca de."""
         if hasattr(self, "about_window") and self.about_window and self.about_window.winfo_exists():
+            if event:
+                try:
+                    x, y = self.about_window.winfo_pointerxy()
+                    x0 = self.about_window.winfo_rootx()
+                    y0 = self.about_window.winfo_rooty()
+                    x1 = x0 + self.about_window.winfo_width()
+                    y1 = y0 + self.about_window.winfo_height()
+                    if x0 <= x <= x1 and y0 <= y <= y1:
+                        return
+                except Exception:
+                    pass
             self.about_window.destroy()
             self.about_window = None
     
@@ -662,6 +901,142 @@ class RedIMGApp:
             try:
                 self.about_window.focus_set()
                 self.about_window.bind("<FocusOut>", self.cerrar_about)
+            except Exception:
+                pass
+
+    def mostrar_config(self) -> None:
+        """Muestra la ventana de Configuración (Settings)."""
+        try:
+            if hasattr(self, "config_window") and self.config_window and self.config_window.winfo_exists():
+                self.config_window.lift()
+                return
+            
+            self.config_window = ttk.Toplevel(self.root)
+            self.config_window.title("Configuración")
+            self.config_window.geometry("300x156")
+            self.config_window.resizable(False, False)
+            self.config_window.configure(background="#000000")
+            self.config_window.overrideredirect(True)
+            self.config_window.attributes("-topmost", True)
+            
+            self.root.update_idletasks()
+            main_x = self.canvas_bg.winfo_rootx()
+            main_y = self.canvas_bg.winfo_rooty()
+            main_h = self.canvas_bg.winfo_height()
+            
+            x = main_x
+            y = main_y + main_h
+            self.config_window.geometry(f"300x165+{int(x)}+{int(y)}")
+            
+            self.root.after(200, self._set_config_focus)
+            
+            # Content of Config
+            container = tk.Frame(self.config_window, bg="#000000")
+            container.pack(fill="both", expand=True, padx=20, pady=15)
+            
+            # 1. Preset Slider para Target Size
+            size_frame = tk.Frame(container, bg="#000000")
+            size_frame.pack(fill="x", pady=(0, 15))
+            
+            lbl_size = ttk.Label(size_frame, text="Tamaño:", background="#000000", foreground="#FFFFFF", font=("Arial", 10, "bold"))
+            lbl_size.pack(side="left")
+            
+            presets = [("780KB", 780), ("1MB", 1024), ("2MB", 2048), ("Sin límite", 0)]
+            
+            def get_preset_idx(kb):
+                for i, (_, val) in enumerate(presets):
+                    if kb == val: return i
+                return 0
+                
+            current_idx = get_preset_idx(self.config.get("target_size_kb", 780))
+            
+            self.var_size = tk.IntVar(master=self.config_window, value=current_idx)
+            lbl_size_val = ttk.Label(size_frame, text=presets[current_idx][0], background="#000000", foreground="#FFFFFF", font=("Arial", 10, "bold"))
+            lbl_size_val.pack(side="right")
+            
+            def on_slider_change(val):
+                idx = round(float(val))
+                self.var_size.set(idx)
+                lbl_size_val.config(text=presets[idx][0])
+                self.config["target_size_kb"] = presets[idx][1]
+                self.save_config()
+                
+            slider = ttk.Scale(container, from_=0, to=len(presets)-1, variable=self.var_size, orient="horizontal", command=on_slider_change, bootstyle="info")
+            slider.pack(fill="x", pady=(0, 2))
+            
+            ticks_canvas = tk.Canvas(container, height=8, bg="#000000", highlightthickness=0)
+            ticks_canvas.pack(fill="x", pady=(0, 15))
+            
+            def draw_ticks(event):
+                ticks_canvas.delete("all")
+                w = event.width
+                pad = 8 # Margen interno del thumb del slider
+                usable_w = w - (pad * 2)
+                if usable_w > 0:
+                    for i in range(len(presets)):
+                        x = pad + (usable_w * i / (len(presets) - 1))
+                        ticks_canvas.create_line(x, 0, x, 6, fill="#00FF99", width=2)
+                        
+            ticks_canvas.bind("<Configure>", draw_ticks)
+            
+            # 2. Formato de Salida
+            lbl_format = ttk.Label(container, text="Convertir a:", background="#000000", foreground="#00FF99", font=("Arial", 10, "bold"))
+            lbl_format.pack(anchor="w", pady=(0, 10))
+            
+            format_frame = tk.Frame(container, bg="#000000")
+            format_frame.pack(fill="x")
+            
+            self.var_format = tk.StringVar(master=self.config_window, value=self.config.get("format", "jpg"))
+            
+            def on_format_change():
+                fmt = self.var_format.get()
+                self.config["format"] = fmt
+                if fmt == "webp":
+                    self.config["webp_mode"] = "lossless"
+                self.save_config()
+                
+            # Establecer WebP Lossless por defecto al cargar si era lossy
+            if self.config.get("format") == "webp":
+                self.config["webp_mode"] = "lossless"
+                self.save_config()
+            
+            rb_jpg = ttk.Radiobutton(format_frame, text="JPG", variable=self.var_format, value="jpg", command=on_format_change, bootstyle="success-toolbutton")
+            rb_png = ttk.Radiobutton(format_frame, text="PNG", variable=self.var_format, value="png", command=on_format_change, bootstyle="success-toolbutton")
+            rb_webp = ttk.Radiobutton(format_frame, text="WebP", variable=self.var_format, value="webp", command=on_format_change, bootstyle="success-toolbutton")
+            rb_avif = ttk.Radiobutton(format_frame, text="AVIF", variable=self.var_format, value="avif", command=on_format_change, bootstyle="success-toolbutton")
+            
+            rb_jpg.pack(side="left", expand=True, fill="x", padx=3)
+            rb_png.pack(side="left", expand=True, fill="x", padx=3)
+            rb_webp.pack(side="left", expand=True, fill="x", padx=3)
+            rb_avif.pack(side="left", expand=True, fill="x", padx=3)
+
+        except Exception as e:
+            logger.error("Error al mostrar Config: %s", e)
+            messagebox.showerror("Error", f"No se pudo abrir Config:\n{e}")
+
+    def cerrar_config(self, event: Optional[tk.Event] = None) -> None:
+        """Cierra la ventana Config."""
+        if hasattr(self, "config_window") and self.config_window and self.config_window.winfo_exists():
+            if event:
+                try:
+                    x, y = self.config_window.winfo_pointerxy()
+                    x0 = self.config_window.winfo_rootx()
+                    y0 = self.config_window.winfo_rooty()
+                    x1 = x0 + self.config_window.winfo_width()
+                    y1 = y0 + self.config_window.winfo_height()
+                    if x0 <= x <= x1 and y0 <= y <= y1:
+                        return
+                except Exception:
+                    pass
+            self.config_window.destroy()
+            self.config_window = None
+
+    def _set_config_focus(self) -> None:
+        """Configura el foco en la ventana Config."""
+        if hasattr(self, "config_window") and self.config_window and self.config_window.winfo_exists():
+            try:
+                self.config_window.focus_set()
+                self.config_window.bind("<FocusOut>", self.cerrar_config)
             except Exception:
                 pass
 
@@ -704,7 +1079,11 @@ class Particle:
     
     def reset(self, initial: bool = False) -> None:
         """Reinicia la partícula a una posición aleatoria y cambia su color."""
-        self.x = random.randint(0, self.w)
+        if random.random() < 0.90:
+            self.x = random.randint(0, self.w // 2)
+        else:
+            self.x = random.randint(self.w // 2, self.w)
+            
         self.y = random.randint(-self.h, 0) if initial else -random.randint(5, 50)
         self.vy = random.uniform(2, 5)
         self.vx = random.uniform(-0.5, 0.5)
@@ -763,46 +1142,11 @@ class PixelRain:
             "#FF0000", "#00FF00", "#0000FF", "#FFFF00",
             "#00FFFF", "#FF00FF", "#FFFFFF", "#FFA500"
         ]
-        self.max_particles = 120  # Reducido para mejorar rendimiento al mover la ventana
+        self.max_particles = 60  # Reducido para mejorar rendimiento y simplicidad
         self._running = False
-        self.cached_image: Optional[tk.PhotoImage] = None
-        self._calc_queue: queue.Queue = queue.Queue()
-        self._calc_thread: Optional[threading.Thread] = None
-        self._frame_times: List[float] = []
-        self._last_frame_time = 0.0
-    
-    def _create_cached_image(self) -> Optional[tk.PhotoImage]:
-        """Crea una imagen en caché para las partículas."""
-        try:
-            img = tk.PhotoImage(width=2, height=2)
-            img.put("#FFFFFF", to=(0, 0, 1, 1))
-            img.put("#FFFFFF", to=(1, 0, 2, 1))
-            img.put("#FFFFFF", to=(0, 1, 1, 2))
-            img.put("#FFFFFF", to=(1, 1, 2, 2))
-            return img
-        except Exception:
-            return None
-    
-    def _calc_worker(self) -> None:
-        """Hilo de cálculo para actualizar posiciones de partículas."""
-        while self._running:
-            try:
-                updates = []
-                for p in self.particles:
-                    p.update(0)
-                    updates.append((p.id, p.x, p.y))
-                
-                if updates:
-                    self._calc_queue.put(updates)
-                
-                time.sleep(0.015)  # ≈ 60 FPS de cálculo
-            except Exception:
-                pass
     
     def pre_create_particles(self) -> None:
         """Crea las partículas iniciales."""
-        self.cached_image = None  # Desactivar imagen para permitir colores dinámicos
-        
         try:
             self.root.tk.call('tk', 'scaling', 1.0)
         except Exception:
@@ -814,39 +1158,24 @@ class PixelRain:
             )
     
     def animate(self) -> None:
-        """Animación de las partículas consumiendo la cola de cálculo."""
+        """Animación de las partículas simplificada sin hilos extra."""
         if not self._running:
             return
         
         start_time = time.perf_counter()
         
-        # Consumir SOLO la última actualización disponible para evitar lags acumulados
-        latest_updates = None
         try:
-            while not self._calc_queue.empty():
-                latest_updates = self._calc_queue.get_nowait()
-            
-            if latest_updates:
-                for pid, x, y in latest_updates:
-                    if self.cached_image:
-                        self.canvas.coords(pid, x, y)
-                    else:
-                        # Tamaño reducido de 1x1 para un efecto más fino
-                        self.canvas.coords(pid, x, y, x + 1, y + 1)
+            for p in self.particles:
+                p.update(0)
+                self.canvas.coords(p.id, p.x, p.y, p.x + 1, p.y + 1)
         except Exception:
             pass
         
-        # Perfilado y control de frames
-        self._last_frame_time = time.perf_counter()
-        
-        target_interval = 32  # ~30 FPS: Equilibrio perfecto entre fluidez y consumo
+        target_interval = 33  # ~30 FPS
         actual_elapsed = (time.perf_counter() - start_time) * 1000
         delay = max(1, target_interval - int(actual_elapsed))
         
-        if delay < 5:
-            self.root.after_idle(self.animate)
-        else:
-            self.root.after(delay, self.animate)
+        self.root.after(delay, self.animate)
     
     @property
     def running(self) -> bool:
@@ -860,8 +1189,6 @@ class PixelRain:
         self._running = value
         
         if value and not was:
-            self._calc_thread = threading.Thread(target=self._calc_worker, daemon=True)
-            self._calc_thread.start()
             self.animate()
         elif not value and was:
             # El hilo se detendrá solo al chequear self._running
@@ -870,8 +1197,17 @@ class PixelRain:
 
 def main() -> None:
     """Punto de entrada principal."""
-    app = RedIMGApp()
-    app.root.mainloop()
+    try:
+        app = RedIMGApp()
+        app.root.mainloop()
+    except Exception as e:
+        logger.exception("Error fatal durante la ejecución: %s", e)
+        # Mostrar error en una ventana simple si es posible
+        try:
+            import messagebox
+            messagebox.showerror("Error Fatal", f"La aplicación se cerró por un error inesperado:\n{e}")
+        except:
+            pass
 
 
 if __name__ == "__main__":

@@ -1,0 +1,6 @@
+Pillow
+ttkbootstrap
+pillow-heif
+rawpy
+pillow-avif-plugin
+windnd
