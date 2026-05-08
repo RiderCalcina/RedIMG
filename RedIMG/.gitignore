@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches and logs
+*.log
+redimg.log
+
+# Configuración local
+config.json
+
+# Carpetas de compilación
+*.build/
+*.dist/
+build/
+dist/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS generated files
+Thumbs.db
+Desktop.ini
