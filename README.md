@@ -1,4 +1,4 @@
-# RedIMG 📸 - Optimizador de Imágenes Oficial
+# RedIMG 📸 - Optimizador de Imágenes
 
 ![Versión](https://img.shields.io/badge/Versión-3.6.1-FF1A55?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Python-3.8+-00FF99?style=for-the-badge&logo=python)
