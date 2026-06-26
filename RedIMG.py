@@ -1,6 +1,6 @@
 """
 ================================================================================
-REDIMG - OPTIMIZADOR DE IMÁGENES OFICIAL
+REDIMG - OPTIMIZADOR DE IMÁGENES
 ================================================================================
 Este programa ha sido diseñado para que puedas redimensionar y reducir el peso 
 de tus fotos e imágenes de forma masiva y muy rápida.
