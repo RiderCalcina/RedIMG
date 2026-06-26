@@ -11,7 +11,6 @@ de tus fotos e imágenes de forma masiva y muy rápida.
 3. Reduce su peso en kilobytes para que sean fáciles de compartir o subir a la web.
 4. Todo esto lo hace usando varios núcleos de tu procesador al mismo tiempo.
 
-Desarrollado con amor por la comunidad.
 ================================================================================
 """
 
